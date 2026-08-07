@@ -1,0 +1,66 @@
+!pip install gspread google-auth requests --quiet
+import json
+import requests
+import gspread
+from google.colab import auth
+from google.auth import default
+from datetime import datetime
+
+SHEET_ID = ''
+BOT_TOKEN = ''
+CHAT_ID = ''
+GIGA_TOKEN = ''  
+
+auth.authenticate_user()
+creds, _ = default()
+gc = gspread.authorize(creds)
+sh = gc.open_by_key(SHEET_ID)
+worksheet = sh.sheet1
+
+if not worksheet.get_all_values():
+    worksheet.append_row(["Дата","Имя","Тип запроса","Номер заказа","Описание","Срочность","Статус","Ошибка"])
+
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        requests.post(url, json={"chat_id": CHAT_ID, "text": message, "parse_mode": "HTML"})
+    except Exception as e:
+        print(f"Ошибка Telegram: {e}")
+
+def process_message(text):
+    print(f"\nОбработка: {text[:60]}...")
+    # Тестовый режим (без GigaChat)
+    parsed = {
+        "client_name": "Тестовый клиент",
+        "request_type": "other",
+        "order_number": "12345",
+        "description": text[:100],
+        "urgency": True
+    }
+    client_name = parsed.get("client_name", "")
+    request_type = parsed.get("request_type", "other")
+    order_number = parsed.get("order_number", "")
+    description = parsed.get("description", text[:100])
+    urgency = "Да" if parsed.get("urgency", False) else "Нет"
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    row = [now, client_name, request_type, order_number, description, urgency, "OK", ""]
+    try:
+        worksheet.append_row(row)
+        print("✅ Таблица обновлена")
+    except Exception as e:
+        error_msg = f"Ошибка записи: {str(e)}"
+        print(error_msg)
+        return {"status": "error", "error": error_msg}
+    msg = f"📢 Новая заявка\n👤 Имя: {client_name or 'не указано'}\n📂 Тип: {request_type}\n📦 Заказ: {order_number or 'нет'}\n⚡️ Срочно: {urgency}\n📝 Описание: {description[:80]}"
+    send_telegram(msg)
+    return {"status": "success", "data": parsed}
+
+test_messages = [
+    "Здравствуйте! Подскажите статус заказа 34567. Я Алексей. Очень нужно, заказ задерживается уже 3 дня.",
+    "Цена на холодильник LG модель BCD-123? И есть ли в наличии? Спасибо.",
+    "Когда придёт моя посылка? Заказ 98765. Очень срочно, завтра уезжаю."
+]
+for msg in test_messages:
+    result = process_message(msg)
+    print(f"Результат: {result['status']}\n")
+print("Готово.")
